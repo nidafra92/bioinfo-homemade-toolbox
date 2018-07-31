@@ -35,6 +35,11 @@ parser.add_option("-r", "--result_file", dest="result_file",
                     type="string",
                     default="sorting_stats.tab",
                     help="Name and path of where the stats file should end up. ")
+parser.add_option("-f", "--filter_list", dest="filter_list",
+                    metavar="FILE",
+                    type="string",
+                    default="no_file",
+                    help="Blast 6 fmt of barcode positives.")
 # parser.add_option("-t", "--temp_directory", dest="temp_directory",
 #                     metavar="PATH",
 #                     type="string",
@@ -60,6 +65,7 @@ if not options.input_fasta:
 original_fasta = options.input_fasta
 sorted_fasta_file = options.output_fasta
 stats_result_file = options.result_file
+filter_list = options.filter_list
 
 def fasta_reader(fasta_filename):
     with open(fasta_filename) as fasta_handle:
@@ -94,8 +100,11 @@ class ONTread:
         self.chnum = header_tuple[3]
         self.time = header_tuple[4]
         self.seq = read_tuple[1]
+        #self.keep = True
     def __str__(self):
         return "{}\t{}\t{}\t{} bp".format(self.readname, self.runid, self.time, len(self.seq))
+    #def activate(self):
+        #self.keep = False
 
 unsorted_reads = []
 
@@ -113,6 +122,22 @@ print("Sorting reads by start time.")
 sorted_reads = sorted(unsorted_reads, key = lambda read: read.time)
 
 print("Completed!")
+
+if filter_list != "no_file":
+    print("Filter list with read IDs detected!")
+    filter_set = set([])
+    reads_to_keep = []
+    with open(filter_list) as ID_list:
+        for line in ID_list:
+            read_id = line.strip().split("\t")[0]
+            filter_set.add(read_id)
+    for read in sorted_reads:
+        if read.readname in filter_set:
+            reads_to_keep.append(read)
+    print("Total of {} reads were kept.".format(len(reads_to_keep)))
+    sorted_reads = reads_to_keep
+
+
 
 with open(stats_result_file,"a") as stats:
 #print("\n\nSORTED\n\n")
