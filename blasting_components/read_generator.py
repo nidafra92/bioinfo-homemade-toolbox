@@ -9,7 +9,11 @@ import arrow
 import time
 from itertools import groupby
 import subprocess
-import multiprocessing
+#import multiprocessing
+from threading import Thread
+from queue import Queue
+from time import sleep
+
 
 class AlreadyBaitTested(Exception):
     pass
@@ -155,26 +159,29 @@ def library_loader(sorted_readlist, time_delta, minion):
         minion.put(read)
 
 def sequencing_task(minion, mt_bait_queue):
-    while not minion.empty():
-        sequenced_read = minion.get(True)
-        print("waiting...")
-        wait_until(sequenced_read.simtime)
-        print("A new read has been sequenced at ".format(sequenced_read.simtime.format("HH:mm:ss ZZ")))
-        mt_bait_queue.put(sequenced_read)
-        print(sequenced_read)
+    #while not minion.empty():
+    sequenced_read = minion.get()
+    wait_until(sequenced_read.simtime)
+    #print("A new read has been sequenced at ".format(sequenced_read.simtime.format("HH:mm:ss ZZ")))
+    mt_bait_queue.put(sequenced_read)
+    print(sequenced_read)
+        #minion.task_done()
 
 def mtbait_tester(mt_bait_queue, spp_id_queue, mt_bait_job):
-    while not mt_bait_queue.empty():
-        sequenced_read = mt_bait_queue.get(True)
-        sequenced_read.use_as_bait(mt_bait_job)
-        if sequenced_read.is_mito:
-            spp_id_queue.put(sequenced_read)
+    #while not mt_bait_queue.empty():
+    sequenced_read = mt_bait_queue.get()
+    sequenced_read.use_as_bait(mt_bait_job)
+    print(sequenced_read.is_mito)
+    if sequenced_read.is_mito:
+        spp_id_queue.put(sequenced_read)
+        #mt_bait_queue.task_done()
 
 def spp_id_blaster(spp_id_queue, spp_id_job):
-    while not spp_id_queue.empty():
-        mtdna_read = spp_id_queue.get()
-        mtdna_read.blast_for_ID(spp_id_job)
-        print("Identified as: {}".format(mtdna_read.IDresults))
+    #while not spp_id_queue.empty():
+    mtdna_read = spp_id_queue.get()
+    mtdna_read.blast_for_ID(spp_id_job)
+    print("Identified as: {}".format(mtdna_read.IDresults))
+        #spp_id_queue.task_done()
 
 
 if __name__ == "__main__":
@@ -194,36 +201,51 @@ if __name__ == "__main__":
 
     original_start_time = sorted_reads[0].time
     # defining start time for simulation
-    sim_start_time = arrow.utcnow().shift(minutes=+0.1)
+    sim_start_time = arrow.utcnow().shift(minutes=+0.2)
     time_delta = sim_start_time - original_start_time
     print("Initializing simulation start time!")
     print("Start time (UTC): {}".format(sim_start_time.format('YYYY-MM-DD HH:mm:ss ZZ')))
     print(sim_start_time.humanize())
 
     #virtual_minion = multiprocessing.Queue()
-    sim_manager = multiprocessing.Manager()
-    virtual_minion = sim_manager.Queue()
-    mtDNA_test = sim_manager.Queue()
-    spp_ID_test = sim_manager.Queue()
+    virtual_minion = Queue()
+    mtDNA_test = Queue()
+    spp_ID_test = Queue()
 
-    load_library = multiprocessing.Process(target=library_loader, args=(sorted_reads, time_delta, virtual_minion))
-    sequencing_run = multiprocessing.Process(target=sequencing_task, args=(virtual_minion, mtDNA_test))
-    mt_bait_checker = multiprocessing.Process(target=mtbait_tester, args=(mtDNA_test, spp_ID_test, mt_bait_job))
+    queues = [virtual_minion, mtDNA_test, spp_ID_test]
 
-    enhanced_mtBlaster = multiprocessing.Process(target=spp_id_blaster, args=(spp_ID_test, spp_id_job))
+    # load_library = multiprocessing.Process(target=library_loader, args=(sorted_reads, time_delta, virtual_minion))
+    # sequencing_run = multiprocessing.Process(target=sequencing_task, args=(virtual_minion, mtDNA_test))
+    # mt_bait_checker = multiprocessing.Process(target=mtbait_tester, args=(mtDNA_test, spp_ID_test, mt_bait_job))
+    #
+    # enhanced_mtBlaster = multiprocessing.Process(target=spp_id_blaster, args=(spp_ID_test, spp_id_job))
 
-    processes = [load_library, sequencing_run, mt_bait_checker, enhanced_mtBlaster]
+    load_library = Thread(target=library_loader, args=(sorted_reads, time_delta, virtual_minion))
+
+    sequencing_run = Thread(target=sequencing_task, args=(virtual_minion, mtDNA_test))
+
+    mt_bait_checker = Thread(target=mtbait_tester, args=(mtDNA_test, spp_ID_test, mt_bait_job))
+
+    enhanced_mtBlaster = Thread(target=spp_id_blaster, args=(spp_ID_test, spp_id_job))
+
+    concurrent_threads = [sequencing_run, mt_bait_checker, enhanced_mtBlaster]
 
     print("Readjusting 'birth time' for each read")
 
-    #for process in processes:
-    #    process.start()
-
-
     load_library.start()
-    #load_library.join()
-    sequencing_run.start()
-    mt_bait_checker.start()
+    #sleep(10)
+    #virtual_minion.join()
+
+    for thread in concurrent_threads:
+        #sleep(0.5)
+        thread.start()
+
+    #for queue in queues:
+    #    queue.join()
+
+    #spp_ID_test.join()
+    #sequencing_run.start()
+    #mt_bait_checker.start()
     #virtual_minion.close()
     #sequencing_run.join()
     #enhanced_mtBlaster.join()
